@@ -22,7 +22,9 @@ class PokemonFeatureEngineer:
         df['offensive_stat_sum'] = df['attack'] + df['sp_atk'] + df['speed']
         df['defensive_stat_sum'] = df['hp'] + df['defense'] + df['sp_def']
         
-        df['bst_efficiency'] = (df['offensive_stat_sum'] + df['defensive_stat_sum']) / df['bst']
+        # FIX: Calculate Min-Max Efficiency
+        df['effective_bst'] = df['bst'] - df[['attack', 'sp_atk']].min(axis=1)
+        df['bst_efficiency'] = df['effective_bst'] / df['bst']
         
         conditions = [
             (df['speed'] < 50),

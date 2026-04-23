@@ -7,8 +7,8 @@ class PokemonDataLoader:
         self.raw_data_dir = raw_data_dir
         self.base_url = "https://pokeapi.co/api/v2"
 
-    def fetch_pokemon_list(self, limit=150):
-        url = f"{self.base_url}/pokemon?limit={limit}"
+    def fetch_pokemon_list(self, limit=150, offset=0):
+        url = f"{self.base_url}/pokemon?limit={limit}&offset={offset}"
         response = requests.get(url)
         response.raise_for_status()
         return response.json()['results']
@@ -24,8 +24,15 @@ class PokemonDataLoader:
             return None
         
         stats = {stat['stat']['name']: stat['base_stat'] for stat in data['stats']}
-        types = [t['type']['name'] for t in data['types']]
+        types = sorted([t['type']['name'] for t in data['types']])
         abilities = [a['ability']['name'] for a in data['abilities']]
+        
+        # Create a unique key for stat/type combo to filter cosmetic duplicates
+        stat_key = (
+            stats.get('hp', 0), stats.get('attack', 0), stats.get('defense', 0),
+            stats.get('special-attack', 0), stats.get('special-defense', 0), stats.get('speed', 0),
+            tuple(types)
+        )
         
         parsed = {
             'id': data['id'],
@@ -42,25 +49,38 @@ class PokemonDataLoader:
             'sp_def': stats.get('special-defense', 0),
             'speed': stats.get('speed', 0),
             'weight_kg': data['weight'] / 10,
-            'height_m': data['height'] / 10
+            'height_m': data['height'] / 10,
+            'stat_key': stat_key
         }
         return parsed
 
-    def build_base_dataset(self, limit=150, filename="base_pokemon_data.csv"):
-        print(f"Fetching list of {limit} Pokémon...")
+    def build_base_dataset(self, limit=1500, filename="base_pokemon_data.csv"):
+        print(f"Fetching total list of Pokémon (including varieties)...")
+        # PokeAPI currently has ~1350 entries including all forms
         pokemon_list = self.fetch_pokemon_list(limit)
         
         parsed_data = []
+        seen_stat_keys = set()
+        
+        total = len(pokemon_list)
         for i, p in enumerate(pokemon_list):
             if i % 50 == 0:
-                print(f"Processing {i}/{limit}...")
+                print(f"Processing {i}/{total}...")
+            
             details = self.fetch_pokemon_details(p['url'])
             parsed = self.parse_pokemon_data(details)
+            
             if parsed:
-                parsed_data.append(parsed)
+                # Only include if it has unique stats/types or is a base form (ID <= 1025)
+                # This excludes 50+ identical Alcremie/Vivillon/Pikachu forms
+                if parsed['stat_key'] not in seen_stat_keys or parsed['id'] <= 1025:
+                    seen_stat_keys.add(parsed['stat_key'])
+                    # Remove the temp key before saving
+                    del parsed['stat_key']
+                    parsed_data.append(parsed)
                 
         df = pd.DataFrame(parsed_data)
         filepath = os.path.join(self.raw_data_dir, filename)
         df.to_csv(filepath, index=False)
-        print(f"Dataset saved to {filepath}")
+        print(f"Dataset saved to {filepath}. Total unique forms: {len(df)}")
         return df
