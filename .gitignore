@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+.env
+data/external/
+data/interim/
+data/processed/*.csv
+data/synthetic/*.csv
+models/*.pkl
+.streamlit/

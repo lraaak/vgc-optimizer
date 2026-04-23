@@ -18,6 +18,8 @@ class MonteCarloSimulator:
             else:
                 raise FileNotFoundError(f"Data not found: {self.data_path}")
         self.df = pd.read_csv(self.data_path).set_index('name')
+        # Use TeamSynergyScorer for type effectiveness logic
+        self.scorer = TeamSynergyScorer(data_path=self.data_path)
 
     def get_leads(self, team_names):
         # Ensure we only pick names that actually exist in the dataframe
@@ -30,19 +32,33 @@ class MonteCarloSimulator:
         return team_data.iloc[:2] 
 
     def calculate_damage_score(self, attacker, defender, rng_roll):
-        # Basic damage formula: (Atk/Def) * BasePower * RNG
+        # Determine best type effectiveness
+        # Attacker uses their own types (Type 1 or Type 2) for STAB
+        type1_eff = self.scorer.calculate_effectiveness(attacker['type_1'], defender)
+        type2_eff = 1.0
+        if pd.notna(attacker['type_2']):
+            type2_eff = self.scorer.calculate_effectiveness(attacker['type_2'], defender)
+        
+        # Max effectiveness including 1.5x STAB multiplier
+        type_mult = max(type1_eff, type2_eff) * 1.5
+        
+        # Basic damage formula: (Atk/Def) * BasePower * RNG * TypeMult
         phys_dmg = (attacker['attack'] / (defender['defense'] + 1)) 
         spec_dmg = (attacker['sp_atk'] / (defender['sp_def'] + 1))
+        
         # VGC moves are roughly 80-100 base power
         base_dmg = max(phys_dmg, spec_dmg) * 50 
-        # Return percentage of HP dealt
-        return (base_dmg / defender['hp']) * rng_roll
+        
+        # Final damage percentage of HP dealt (capped at 1.0 to prevent overkill skewing momentum)
+        total_dmg = (base_dmg / defender['hp']) * rng_roll * type_mult
+        return min(1.0, total_dmg)
 
-    def simulate_matchup(self, team_a_names, team_b_names, n_simulations=100):
-        try:
-            leads_a = self.get_leads(team_a_names)
-            leads_b = self.get_leads(team_b_names)
-        except (KeyError, ValueError):
+    def simulate_matchup(self, team_a_names, team_b_names, n_simulations=100, return_prob=False):
+        # Filter valid pokemon
+        valid_a = [n for n in team_a_names if n in self.df.index]
+        valid_b = [n for n in team_b_names if n in self.df.index]
+        
+        if len(valid_a) < 2 or len(valid_b) < 2:
             return None 
 
         team_a_wins = 0
@@ -51,11 +67,13 @@ class MonteCarloSimulator:
             team_a_momentum = 0
             team_b_momentum = 0
             
-            # Simulate 2v2 Lead Interaction
-            # A[0] vs B[0] and A[1] vs B[1]
+            # Lead Diversity: Randomly select 2 leads for each simulation
+            leads_a_indices = np.random.choice(len(valid_a), 2, replace=False)
+            leads_b_indices = np.random.choice(len(valid_b), 2, replace=False)
+            
             for i in range(2):
-                p_a = leads_a.iloc[i]
-                p_b = leads_b.iloc[i]
+                p_a = self.df.loc[valid_a[leads_a_indices[i]]]
+                p_b = self.df.loc[valid_b[leads_b_indices[i]]]
                 
                 roll_a = np.random.uniform(0.85, 1.0)
                 roll_b = np.random.uniform(0.85, 1.0)
@@ -63,12 +81,11 @@ class MonteCarloSimulator:
                 dmg_to_b = self.calculate_damage_score(p_a, p_b, roll_a)
                 dmg_to_a = self.calculate_damage_score(p_b, p_a, roll_b)
                 
-                # Speed Priority: If you are faster, you have a 30% chance to 
-                # effectively 'flinch' or KO the opponent before they hit back
+                # If a Pokemon is faster, it has a chance to reduce opponent damage (representing a KO or flinch)
                 if p_a['speed'] > p_b['speed']:
-                    dmg_to_a *= 0.7 
+                    dmg_to_a *= 0.85
                 elif p_b['speed'] > p_a['speed']:
-                    dmg_to_b *= 0.7
+                    dmg_to_b *= 0.85
 
                 team_a_momentum += dmg_to_b
                 team_b_momentum += dmg_to_a
@@ -76,7 +93,12 @@ class MonteCarloSimulator:
             if team_a_momentum > team_b_momentum:
                 team_a_wins += 1
 
-        return 1 if (team_a_wins / n_simulations) > 0.5 else 0
+        # Calculate and return the exact probability if requested
+        win_prob = team_a_wins / n_simulations
+        if return_prob:
+            return win_prob
+        
+        return 1 if win_prob > 0.5 else 0
 
 
 class WinProbabilityModel:
