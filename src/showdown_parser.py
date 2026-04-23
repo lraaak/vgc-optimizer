@@ -40,8 +40,17 @@ class ShowdownDataParser:
                 'accuracy': data.get('accuracy'), 
                 'priority': data.get('priority', 0),
                 'target': data.get('target'), 
-                # Convert nested mechanical flags (e.g., makes contact, blocked by protect) to a JSON string
-                'flags': json.dumps(data.get('flags', {})) 
+                'flags': json.dumps(data.get('flags', {})),
+                'secondary': json.dumps(data.get('secondary', {})),
+                'boosts': json.dumps(data.get('boosts', {})),
+                'self': json.dumps(data.get('self', {})),
+                'volatileStatus': data.get('volatileStatus', ''),
+                'selfSwitch': data.get('selfSwitch', False),
+                'recoil': json.dumps(data.get('recoil', [0, 1])),
+                'drain': json.dumps(data.get('drain', [0, 1])),
+                'multihit': json.dumps(data.get('multihit', 1)),
+                'selfdestruct': data.get('selfdestruct', ''),
+                'critRatio': data.get('critRatio', 1)
             })
             
         df = pd.DataFrame(structured_moves)

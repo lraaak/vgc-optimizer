@@ -14,6 +14,12 @@ class SmartVGCAgent:
             return None
 
         for move in user.moves:
+            # Choice Lock / Encore Enforcement
+            if user.choice_lock and move.get('name') != user.choice_lock:
+                continue
+            if user.encore_turns > 0 and user.last_move and move.get('name') != user.last_move.get('name'):
+                continue
+
             if move.get('category') == 'Status':
                 if move.get('name') == 'Protect':
                     score = self._evaluate_protect(user, valid_opponents)
@@ -53,8 +59,8 @@ class SmartVGCAgent:
         ko_bonus = 2.0 if est_dmg >= target.current_hp else 1.0
         base_score = (est_dmg / max(1, target.current_hp)) * ko_bonus
 
-        user_speed = user.get_stat('speed')
-        target_speed = target.get_stat('speed')
+        user_speed = user.get_stat('speed', self.engine.state)
+        target_speed = target.get_stat('speed', self.engine.state)
         move_priority = move.get('priority', 0)
 
         if move_priority <= 0 and target_speed > user_speed:
@@ -71,7 +77,7 @@ class SmartVGCAgent:
         max_incoming = 0
         
         for opp in opponents:
-            if opp.get_stat('speed') > user.get_stat('speed'):
+            if opp.get_stat('speed', self.engine.state) > user.get_stat('speed', self.engine.state):
                 incoming = self._get_max_incoming_damage(opp, user)
                 if incoming > max_incoming:
                     max_incoming = incoming
